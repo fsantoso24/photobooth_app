@@ -1,6 +1,5 @@
 import { useRef } from 'react';
 import { ArrowLeft, Download, Share2, RotateCcw } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import type { Photo, StripColor, Sticker } from '../App';
 
 interface NotesPageProps {
@@ -25,18 +24,184 @@ export function NotesPage({
   onReset
 }: NotesPageProps) {
   const finalResultRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const generateCanvas = async (): Promise<HTMLCanvasElement> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      // Set canvas size (420px width from the div + padding)
+      const stripWidth = 340; // 420 - (2 * 40 padding)
+      const stripPadding = 24; // 6 * 4px
+      const photoSpacing = 16; // 4 * 4px
+      const photoHeight = (stripWidth - (2 * stripPadding)) * 0.75; // 4:3 aspect ratio
+      const borderWidth = 2;
+      
+      const totalStripHeight = (2 * stripPadding) + (4 * photoHeight) + (3 * photoSpacing) + (2 * borderWidth);
+      const notesHeight = 120;
+      const notesPadding = 24;
+      const spacing = 24;
+      
+      canvas.width = 420 * 2; // 2x for better quality
+      canvas.height = (40 + totalStripHeight + spacing + notesHeight + 40 + 30) * 2; // 2x for better quality
+      
+      ctx.scale(2, 2);
+      
+      // Background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      let currentY = 40;
+      
+      // Photo strip background
+      ctx.fillStyle = getStripColorValue(stripColor);
+      ctx.fillRect(40, currentY, stripWidth, totalStripHeight);
+      
+      // Photo strip border
+      ctx.strokeStyle = '#1F2937';
+      ctx.lineWidth = borderWidth;
+      ctx.strokeRect(40, currentY, stripWidth, totalStripHeight);
+      
+      // Watermark (top right)
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(40 + stripWidth - 90, currentY + 12, 78, 24);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(40 + stripWidth - 90, currentY + 12, 78, 24);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('@fondairena', 40 + stripWidth - 51, currentY + 28);
+      
+      const stripStartY = currentY;
+      let photoY = currentY + stripPadding;
+      
+      // Load and draw all images
+      const imagePromises: Promise<void>[] = [];
+      
+      photos.forEach((photo, index) => {
+        const promise = new Promise<void>((resolveImg) => {
+          const img = new Image();
+          img.onload = () => {
+            const photoWidth = stripWidth - (2 * stripPadding);
+            const photoHeight = photoWidth * 0.75;
+            const photoX = 40 + stripPadding;
+            const y = photoY + (index * (photoHeight + photoSpacing));
+            
+            // Draw photo
+            ctx.drawImage(img, photoX, y, photoWidth, photoHeight);
+            
+            // Photo border
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(photoX, y, photoWidth, photoHeight);
+            
+            resolveImg();
+          };
+          img.onerror = () => resolveImg();
+          img.src = photo.dataUrl;
+        });
+        imagePromises.push(promise);
+      });
+      
+      // Draw stickers
+      stickers.forEach((sticker) => {
+        ctx.save();
+        const stickerX = 40 + sticker.x;
+        const stickerY = stripStartY + sticker.y;
+        ctx.translate(stickerX, stickerY);
+        ctx.rotate((sticker.rotation * Math.PI) / 180);
+        ctx.scale(sticker.scale, sticker.scale);
+        ctx.font = '32px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(sticker.emoji, 0, 0);
+        ctx.restore();
+      });
+      
+      // Draw drawing if exists
+      if (drawing) {
+        const drawPromise = new Promise<void>((resolveDrawing) => {
+          const drawImg = new Image();
+          drawImg.onload = () => {
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.drawImage(drawImg, 40, stripStartY, stripWidth, totalStripHeight);
+            ctx.globalCompositeOperation = 'source-over';
+            resolveDrawing();
+          };
+          drawImg.onerror = () => resolveDrawing();
+          drawImg.src = drawing;
+        });
+        imagePromises.push(drawPromise);
+      }
+      
+      Promise.all(imagePromises).then(() => {
+        currentY += totalStripHeight + spacing;
+        
+        // Notes section
+        ctx.fillStyle = '#FEF3C7';
+        ctx.fillRect(40, currentY, stripWidth, notesHeight);
+        
+        // Notes border
+        ctx.strokeStyle = '#FBBF24';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(40, currentY, stripWidth, notesHeight);
+        
+        // Notes label
+        ctx.fillStyle = '#FDE68A';
+        ctx.fillRect(54, currentY - 12, 60, 24);
+        ctx.strokeStyle = '#FBBF24';
+        ctx.strokeRect(54, currentY - 12, 60, 24);
+        ctx.fillStyle = '#92400E';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Notes', 84, currentY + 3);
+        
+        // Notes text
+        if (notes) {
+          ctx.fillStyle = '#374151';
+          ctx.font = '14px Arial';
+          ctx.textAlign = 'left';
+          const maxWidth = stripWidth - (2 * notesPadding);
+          const lineHeight = 20;
+          const words = notes.split(' ');
+          let line = '';
+          let y = currentY + notesPadding + 8;
+          
+          for (let i = 0; i < words.length; i++) {
+            const testLine = line + words[i] + ' ';
+            const metrics = ctx.measureText(testLine);
+            if (metrics.width > maxWidth && i > 0) {
+              ctx.fillText(line, 40 + notesPadding, y);
+              line = words[i] + ' ';
+              y += lineHeight;
+            } else {
+              line = testLine;
+            }
+          }
+          ctx.fillText(line, 40 + notesPadding, y);
+        }
+        
+        // Bottom watermark
+        currentY += notesHeight + 16;
+        ctx.fillStyle = '#9CA3AF';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('@fondairena', 40 + stripWidth / 2, currentY);
+        
+        resolve(canvas);
+      });
+    });
+  };
 
   const handleDownload = async () => {
-    if (!finalResultRef.current) return;
-
     try {
-      const canvas = await html2canvas(finalResultRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        logging: false,
-        useCORS: true
-      });
-
+      const canvas = await generateCanvas();
       const link = document.createElement('a');
       link.download = `fondairena-photobooth-${Date.now()}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -48,28 +213,35 @@ export function NotesPage({
   };
 
   const handleShare = async () => {
-    if (!finalResultRef.current) return;
-
     try {
-      const canvas = await html2canvas(finalResultRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        logging: false,
-        useCORS: true
-      });
-
+      const canvas = await generateCanvas();
+      
       canvas.toBlob(async (blob) => {
-        if (!blob) return;
+        if (!blob) {
+          alert('Failed to generate image.');
+          return;
+        }
 
         const file = new File([blob], 'fondairena-photobooth.png', { type: 'image/png' });
 
-        if (navigator.share && navigator.canShare({ files: [file] })) {
+        if (navigator.share) {
           try {
-            await navigator.share({
-              files: [file],
-              title: 'My Fondairena Photobooth',
-              text: 'Check out my photo strip! 📸 Created with @fondairena'
-            });
+            // Check if files can be shared
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: 'My Fondairena Photobooth',
+                text: 'Check out my photo strip! 📸 Created with @fondairena'
+              });
+            } else {
+              // Fallback: share without file
+              await navigator.share({
+                title: 'My Fondairena Photobooth',
+                text: 'Check out my photo strip! 📸 Created with @fondairena'
+              });
+              // Still download the file
+              handleDownload();
+            }
           } catch (err) {
             if ((err as Error).name !== 'AbortError') {
               console.error('Error sharing:', err);
@@ -80,10 +252,11 @@ export function NotesPage({
           alert('Sharing not supported on this device. Downloading instead!');
           handleDownload();
         }
-      });
+      }, 'image/png');
     } catch (error) {
       console.error('Error sharing:', error);
-      alert('Failed to share. Please try downloading instead.');
+      alert('Failed to share. Downloading instead...');
+      handleDownload();
     }
   };
 
@@ -121,6 +294,7 @@ export function NotesPage({
                         alt={`Photo ${index + 1}`}
                         className="w-full h-auto border-2 border-white"
                         style={{ aspectRatio: '4/3', objectFit: 'cover' }}
+                        crossOrigin="anonymous"
                       />
                     </div>
                   ))}
@@ -152,6 +326,7 @@ export function NotesPage({
                       alt="Drawing"
                       className="w-full h-full"
                       style={{ mixBlendMode: 'multiply' }}
+                      crossOrigin="anonymous"
                     />
                   </div>
                 )}
@@ -230,6 +405,9 @@ export function NotesPage({
           </div>
         </div>
       </div>
+      
+      {/* Hidden canvas for rendering */}
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

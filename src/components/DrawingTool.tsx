@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { Eraser, Undo } from 'lucide-react';
 
 export type DrawingToolType = 'pencil' | 'pen' | 'marker';
@@ -80,8 +80,11 @@ export function DrawingTool({ width, height, onDrawingChange }: DrawingToolProps
       ctx.stroke();
     });
 
-    if (canvas && lines.length > 0) {
+    // Only update parent when we have actual drawings
+    if (lines.length > 0 && canvas) {
       onDrawingChange(canvas.toDataURL());
+    } else if (lines.length === 0) {
+      onDrawingChange('');
     }
   };
 

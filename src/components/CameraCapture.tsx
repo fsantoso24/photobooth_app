@@ -46,15 +46,24 @@ export function CameraCapture({ onComplete }: CameraCaptureProps) {
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 1280, height: 720 },
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
       setStream(mediaStream);
-      setMode('camera');
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        // Critical for iOS: play the video
+        videoRef.current.play().catch(err => {
+          console.error('Error playing video:', err);
+        });
       }
+      
+      setMode('camera');
     } catch (err) {
       console.error('Error accessing camera:', err);
       alert('Unable to access camera. Please ensure you have granted camera permissions.');
@@ -281,6 +290,11 @@ export function CameraCapture({ onComplete }: CameraCaptureProps) {
                 playsInline
                 muted
                 className="w-full h-full object-cover"
+                onLoadedMetadata={(e) => {
+                  // Ensure video plays on iOS
+                  const video = e.currentTarget;
+                  video.play().catch(err => console.error('Video play error:', err));
+                }}
               />
               {flash && (
                 <div className="absolute inset-0 bg-white animate-pulse" />
